@@ -53,10 +53,13 @@ class Ui_mainWindow(object):
         self.splitter2 = QtGui.QSplitter(self.splitter0)    #Added
         self.splitter2.setOrientation(QtCore.Qt.Vertical)   #
         self.splitter2.setObjectName(_fromUtf8("splitter2"))    #
-        self.qspacePlotWidget = PlotWidget(self.splitter1)
-        self.qspacePlotWidget.setObjectName(_fromUtf8("qspacePlotWidget"))
+        self.unscaledPlotWidget = PlotWidget(self.splitter1)
+        self.unscaledPlotWidget.setObjectName(_fromUtf8("unscaledPlotWidget"))
+        self.scaledPlotWidget = PlotWidget(self.splitter1)
+        self.scaledPlotWidget.setObjectName(_fromUtf8("qscaledPlotWidget"))
         self.sumPlotWidget = PlotWidget(self.splitter1)     #
         self.sumPlotWidget.setObjectName(_fromUtf8(("sumPlotWidget")))       #
+        ## Not currently expanded to include specilized SAXS calculations
         self.RgPlotWidget = PlotWidget(self.splitter2) #Added
         self.RgPlotWidget.setObjectName(_fromUtf8("RgPlotWidget")) #
         self.intensityPlotWidget = PlotWidget(self.splitter2)
@@ -67,12 +70,24 @@ class Ui_mainWindow(object):
         self.savePlotButton = QtGui.QPushButton(self.centralwidget)  #Button for saving Cumulative average plot
         self.savePlotButton.setObjectName(_fromUtf8("savePlotButton"))
         self.horizontalLayout0.addWidget(self.savePlotButton)
-        self.resetPlotsButton = QtGui.QPushButton(self.centralwidget)
+        self.resetPlotsButton = QtGui.QPushButton(self.centralwidget) #Button for reseting Plots
         self.resetPlotsButton.setObjectName(_fromUtf8("resetPlotsButton"))
         self.horizontalLayout0.addWidget(self.resetPlotsButton)
-        self.delayLabel = QtGui.QLabel(self.centralwidget)
-        self.delayLabel.setObjectName(_fromUtf8("delayLabel"))
-        self.horizontalLayout0.addWidget(self.delayLabel)
+        self.comparePlotsButton = QtGui.QPushButton(self.centralwidget) #Button to toggle on/off compare plot
+        self.comparePlotsButton.setObjectName(_fromUtf8("comparePlotsButton"))
+        self.horizontalLayout0.addWidget(self.comparePlotsButton)
+        self.xAxisTogglePlotsButton = QtGui.QPushButton(self.centralwidget) #Button to toggle xAxis
+        self.xAxisTogglePlotsButton.setObjectName(_fromUtf8("xAxisTogglePlotsButton"))
+        self.horizontalLayout0.addWidget(self.xAxisTogglePlotsButton)
+        self.NumPlotLabel = QtGui.QLabel(self.centralwidget) # Number of Profiles in cumulative average profile
+        self.NumPlotLabel.setObjectName(_fromUtf8("NumPlotLabel"))
+        self.horizontalLayout0.addWidget(self.NumPlotLabel)
+        self.NumTotalLabel = QtGui.QLabel(self.centralwidget) # Num of Profiles tested w/ std. dev for cumulative average profile
+        self.NumTotalLabel.setObjectName(_fromUtf8("NumTotalLabel"))
+        self.horizontalLayout0.addWidget(self.NumTotalLabel)
+        self.percentPlotLabel = QtGui.QLabel(self.centralwidget) # Percent of Profiles Plotted in Cum. plot
+        self.percentPlotLabel.setObjectName(_fromUtf8("percentPlotLabel"))
+        self.horizontalLayout0.addWidget(self.percentPlotLabel)
         spacerItem = QtGui.QSpacerItem(40, 20, QtGui.QSizePolicy.Expanding, QtGui.QSizePolicy.Minimum)
         self.horizontalLayout0.addItem(spacerItem)
         self.verticalLayout0.addLayout(self.horizontalLayout0)
@@ -87,8 +102,13 @@ class Ui_mainWindow(object):
 
     def retranslateUi(self, mainWindow):
         mainWindow.setWindowTitle(_translate("mainWindow", "OnDA Solutions", None))
+        # Defines button labels in GUI
         self.savePlotButton.setText(_translate("mainWindow", "Save Cumulative Plot", None))
         self.resetPlotsButton.setText(_translate("mainWindow", "Reset Plots", None))
-        self.delayLabel.setText(_translate("mainWindow", "Estimated Delay: -", None))
+        self.comparePlotsButton.setText(_translate("mainWindow", "Compare Plots", None))
+        self.xAxisTogglePlotsButton.setText(_translate("mainWindow", "x-axis Toggle", None))
+        self.NumPlotLabel.setText(_translate("mainWindow", "Number Averaged: -", None))
+        self.NumTotalLabel.setText(_translate("mainWindow", "Number Processed: -", None))
+        self.percentPlotLabel.setText(_translate("mainWindow", "% Plotted: -", None))
 
 from pyqtgraph import ImageView, PlotWidget

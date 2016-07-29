@@ -20,6 +20,7 @@
 
 import sys
 import datetime
+import time
 import numpy
 import scipy.constants
 import math
@@ -41,21 +42,6 @@ from PyQt4 import (
 
 from GUI.utils.zmq_gui_utils import ZMQListener
 
-class QAxis(pg.AxisItem):
-    def __init__(self, q_radial_vals, *args, **kwargs):
-        pg.AxisItem.__init__(self, *args, **kwargs)
-        self.q_radial_vals = numpy.round(q_radial_vals, 2)
-    #values = q_radial_vals
-    
-    def tickStrings(self, values, scale, spacing):
-        strings = []
-        q_to_resolution = 2*scipy.constants.pi/numpy.round(self.q_radial_vals,2)
-        q_to_resolution = numpy.round(q_to_resolution, 2)
-        q_and_resolution = numpy.column_stack((self.q_radial_vals, q_to_resolution))
-        for v in values[:-1]:
-            #strings.append(q_and_resolution[v,:])
-            strings.append(self.q_radial_vals[v])
-        return strings
 
 class MainFrame(QtGui.QMainWindow):
     """
@@ -74,24 +60,37 @@ class MainFrame(QtGui.QMainWindow):
         self.geom_filename = geom_filename
         self.local_data = {'time_string': None}
         self.pixel_maps, self.slab_shape, self.img_shape = pixel_maps_for_image_view(self.geom_filename)
-        #self.image_center = (self.img_shape[0]/2, self.img_shape[1]/2)
         self.coffset = coffset_from_geometry_file(self.geom_filename)
         self.res = res_from_geometry_file(self.geom_filename)
         #
+        self.unscaled_radial_profile = numpy.zeros((500))
         self.local_data['radial_average'] = numpy.zeros((500))
-        #self.local_data['radial_avg_data'] = numpy.zeros((500))
         self.local_data['qbins'] = numpy.zeros((500))
+        self.intensity_sum_average = 0
+        self.std_dev = 0
+        self.std_dev_type = 0
+        self.N = 1
+        self.intensity_threshold = 0
         self.sum = numpy.zeros((500))
         self.radial = numpy.zeros((500, 2))
-        self.q_radial = numpy.zeros((500, 2))
-        self.accumulatedRadial = 20
+        self.q_radial = numpy.zeros((500))
+        self.profile_to_compare = numpy.zeros((500))
         self.intensity = numpy.zeros((500,400))
         self.Rg_size = 0
         self.Rg = self.Rg_size * [0.0]
+        self.I0_size = 0
+        self.I0 = self.I0_size * [0.0]
         self.intensity_sum_size = 0
         self.intensity_sum = self.intensity_sum_size * [0.0]
-        self.count_sum = 0
+        self.std_dev_1 = numpy.zeros((500))
+        self.min_bin = 0
+        self.max_bin = 0
+        self.count_sum = 0.0
         self.count = 0
+        self.count_cumulative = 0.0
+        self.percent = 0.0
+        self.click = True
+        self.click_axis = True
         #
 
         self.zeromq_listener_thread = QtCore.QThread()
@@ -118,7 +117,7 @@ class MainFrame(QtGui.QMainWindow):
 
     def init_timer(self):
         self.refresh_timer.timeout.connect(self.update_image_plot)
-        self.refresh_timer.start(500)
+        self.refresh_timer.start(10)
 
     def init_ui(self):
 
@@ -126,38 +125,44 @@ class MainFrame(QtGui.QMainWindow):
         self.ui.imageView.ui.roiBtn.hide()
         
         #
-        self.ui.RgPlotWidget.setTitle('Radius of Gyration')
-        self.ui.RgPlotWidget.setLabel('left', text = 'Radius of Gyration')
-        self.ui.RgPlotWidget.showGrid(True,True)
-        self.ui.RgPlotWidget.setYRange(0, 200.0)
-        self.Rg_plot = self.ui.RgPlotWidget.plot(self.Rg)
+        self.ui.unscaledPlotWidget.setTitle('Unscaled Radial Profile')
+        self.ui.unscaledPlotWidget.setLabel('left', text = 'Unscaled Intensity')
+        self.ui.unscaledPlotWidget.showGrid(True,True)
+        self.ui.unscaledPlotWidget.setXRange(0, 500.0)
+        self.ui.unscaledPlotWidget.setXLink(self.ui.scaledPlotWidget)
+        self.unscaled_plot = self.ui.unscaledPlotWidget.plot(self.radial[:,0], self.unscaled_radial_profile)
         
-        self.ui.sumPlotWidget.setTitle('Cumulative Average Intensity')
+        self.ui.scaledPlotWidget.setTitle('Scaled Radial Intensity Profile')
+        self.ui.scaledPlotWidget.setLabel('left', text = 'Scaled Intenisty')
+        self.ui.scaledPlotWidget.showGrid(True,True)
+        self.ui.scaledPlotWidget.setYRange(0, 10.0)
+        self.ui.scaledPlotWidget.setXRange(0, 500.0)
+        self.scaled_plot = self.ui.scaledPlotWidget.plot(self.radial[:,0], self.radial[:,1])
+        
+        self.ui.sumPlotWidget.setTitle('Cumulative Average Radial Profile')
         self.ui.sumPlotWidget.setLabel('left', text = 'Cumulative Average Intensity')
         self.ui.sumPlotWidget.showGrid(True,True)
         self.ui.sumPlotWidget.setYRange(0,10.0)
         self.sum_plot = self.ui.sumPlotWidget.plot(self.sum) ########### Plot of Cumulative Radial Intensities
-
-        self.ui.qspacePlotWidget.setTitle('Radial Intensity Plot') ###############
-        self.ui.qspacePlotWidget.setLabel('bottom', text = 'pixel bins')
-        self.ui.qspacePlotWidget.setLabel('left', text = 'Intenisty')
-        self.p1 = self.ui.qspacePlotWidget.plotItem
-        self.ui.qspacePlotWidget.showGrid(True,True)
-        self.ui.qspacePlotWidget.setYRange(0, 10.0)
-        self.ui.qspacePlotWidget.setXRange(0, 500.0)
-        self.pixspace_plot = self.p1.plot(self.radial[:,0], self.radial[:,1])
         
-        self.ui.intensityPlotWidget.setTitle('unscaled Radial Intensity Sum vs. Events') ############
-        self.ui.intensityPlotWidget.setLabel('bottom', text = 'Num of Images')
+        self.ui.intensityPlotWidget.setTitle('unscaled Radial Intensity Sum')
         self.ui.intensityPlotWidget.setLabel('left', text = 'Radial Intensity Sum')
         self.ui.intensityPlotWidget.showGrid(True,True)
         self.ui.intensityPlotWidget.setYRange(0, 2000.0)
         self.intensity_plot = self.ui.intensityPlotWidget.plot(self.intensity_sum)
-        #
+        
+        # Currently not expanded to include specialized SAXS calculations
+        #self.ui.RgPlotWidget.setTitle('Radius of Gyration')
+        #self.ui.RgPlotWidget.setLabel('left', text = 'Radius of Gyration')
+        #self.ui.RgPlotWidget.showGrid(True,True)
+        #self.Rg_plot = self.ui.RgPlotWidget.plot(self.Rg)
+
 
         self.ui.savePlotButton.clicked.connect(self.save_plot)
         self.ui.resetPlotsButton.clicked.connect(self.reset_plots)
-
+        self.ui.comparePlotsButton.clicked.connect(self.compare_plots)
+        self.ui.xAxisTogglePlotsButton.clicked.connect(self.x_toggle_plots)
+        #
 
     def mouse_clicked(self, mouse_evt):
         mouse_pos_in_scene = mouse_evt[0].scenePos()
@@ -177,24 +182,64 @@ class MainFrame(QtGui.QMainWindow):
                 self.vertical_lines.append(vertical_line)
                 self.ui.intensityPlotWidget.addItem(vertical_line, ignoreBounds=True)
 
+
     def data_received(self, datdict):
         self.data = copy.deepcopy(datdict)
 
 
     def reset_plots(self):
-        # Now resets sum of intensity plot and starts
+        # Resets Cumulative Average plot and sum of unscaled Radial Intensities plot
+        self.intensity_sum_size = 0
         self.intensity_sum = self.intensity_sum_size * [0.0]
         self.intensity_plot.setData(self.intensity_sum)
         self.sum = numpy.zeros((500))
-        self.count_sum = 0
+        self.intensity_sum_average = 0
+        self.std_dev = 0
+        self.count_sum = 0.0
+        self.count_cumulative = 0.0
+
 
     def save_plot(self):
+        ## Saves Cumulative Average radial profile for subtraction or comparison on another run
         self.sum = numpy.nan_to_num(self.sum)
-        to_save = numpy.column_stack((self.radial[:,0], self.sum))
-        for i in range(0,len(self.sum)):
-            numpy.savetxt('profile_to_subtract.dat', to_save, delimiter=" ", fmt="%3d %1.4f")
+        to_save = numpy.column_stack((self.local_data['qbins'], self.sum))
+        numpy.savetxt('profile_to_subtract.dat', to_save, delimiter=" ", fmt="%.5e")
+    
 
+    def compare_plots(self):
+        ##This function is able to let users compare radial profiles to another profile. Toggles graph on and off. Also checks to see if it should graph with qbins or pixel bins
+        ##File fed in through monitor.ini file in process_collect_solutions
+        if self.click == True:
+            if self.click_axis == True:
+                self.profile_to_compare = self.local_data['profile_to_compare']
+                xvalues = numpy.arange(0,500)
+                self.ui.scaledPlotWidget.plot(xvalues, self.profile_to_compare)
+                self.click = False
+            else:
+                self.profile_to_compare = self.local_data['profile_to_compare']
+                self.ui.scaledPlotWidget.plot(self.q_radial, self.profile_to_compare)
+                self.click = False
+        else:
+            self.ui.scaledPlotWidget.clear()
+            if self.click_axis == True:
+                self.scaled_plot = self.ui.scaledPlotWidget.plot(self.radial[:,0], self.radial[:,1])
+                self.click = True
+            else:
+                self.scaled_plot = self.ui.scaledPlotWidget.plot(self.q_radial, self.radial[:,1])
+                self.click = True
 
+    def x_toggle_plots(self):
+        ## This Fuction changes variable that indicates whether qbins are on xaxis or pixel bins
+        ## Pixel bins are for True
+        if self.click_axis == False:
+            self.ui.scaledPlotWidget.setLabel('bottom', text = 'pixel bins')
+            self.ui.unscaledPlotWidget.setLabel('bottom', text = 'pixel bins')
+            self.click_axis = True
+        else:
+            self.ui.unscaledPlotWidget.setLabel('bottom', text = 'q bins')
+            self.ui.scaledPlotWidget.setLabel('bottom', text = 'q bins')
+            self.click_axis = False
+ 
     def update_image_plot(self):
 
         if len(self.data.keys()) != 0:
@@ -204,29 +249,39 @@ class MainFrame(QtGui.QMainWindow):
             return
 
         QtGui.QApplication.processEvents()
-
+        
+        
+        
         if math.isnan(self.local_data['intensity_sum']):
             self.intensity_sum.append(0)
         else:
             self.intensity_sum.append(self.local_data['intensity_sum'])
 
-        self.intensity_plot.setData(self.intensity_sum)
-
         if 'Rg' in self.local_data.keys():
+            self.ui.intensityPlotWidget.setTitle('I0') ############
+            self.ui.intensityPlotWidget.setLabel('left', text = 'I0')
             if math.isnan(self.local_data['Rg']):
                 self.Rg.append(0)
             else:
                 self.Rg.append(self.local_data['Rg'])
-    
-        self.Rg_plot.setData(self.Rg)
+            if math.isnan(self.local_data['I0']):
+                self.I0.append(0)
+            else:
+                self.I0.append(self.local_data['I0'])
+            
+            # Not currently expanded to inlude specialized SAXS data
+            #self.Rg_plot.setData(self.Rg)
+            #self.intensity_plot.setData(self.I0)
+            
+        else:
+            self.intensity_plot.setData(self.intensity_sum)
 
 
         QtGui.QApplication.processEvents()
 
-        """if self.local_data['optimized_geometry']:
+        #if self.local_data['optimized_geometry']:
 
-        else:
-        """
+        #else:
 
         new_vertical_lines = []
         for vline in self.vertical_lines:
@@ -242,42 +297,84 @@ class MainFrame(QtGui.QMainWindow):
         QtGui.QApplication.processEvents()
 
         timestamp = self.local_data['timestamp']
-        """if timestamp is not None:
+        #if timestamp is not None:
             
-        else:
-        """
+        #else:
 
         QtGui.QApplication.processEvents()
 
         #Updates all Radial Intensity plots, including stacked intensities
         if 'radial_average' in self.local_data.keys():
+            # This is defining variables to use
             self.radial[:,0] = numpy.arange(1, 501)
             self.radial[:,1] = self.local_data['radial_average']
+            self.unscaled_radial_profile = self.local_data['unscaled_radial_profile']
+            self.q_radial = self.local_data['qbins']
+            self.N = self.local_data['N']
+            self.std_dev_type = self.local_data['std_dev_type']
+            self.intensity_threshold = self.local_data['intensity_threshold']
+            self.min_bin = self.local_data['min_bin_to_scale']
+            self.max_bin = self.local_data['max_bin_to_scale']
+            self.num_bins = self.local_data['num_bins']
+            self.count_sum += 1
             
-            self.q_radial[:,0] = self.local_data['qbins']##########
-            self.q_radial[:,1] = self.local_data['radial_average']
-            
-            if self.count == 0:
-                self.qaxis = QAxis(self.q_radial[:,0], orientation = 'top', parent = self.p1)
-                self.qaxis.setGeometry(self.p1.vb.sceneBoundingRect())
-                self.qaxis.linkToView(self.p1.vb)
-                self.qaxis.setLabel('qbins')
-            else:
-                self.qaxis.setGeometry(self.p1.vb.sceneBoundingRect())
-                self.qaxis.linkToView(self.p1.vb)
-                self.qaxis.setLabel('qbins')
         
-            self.pixspace_plot.setData(self.radial[:,0], self.radial[:,1])
+            ## Incorperate std. dev into cumulative radial profile sum
+            # Type 0 corresponds to standard deviation of sum of the intensities
+            if self.local_data['intensity_sum'] >= self.intensity_threshold:
+                if self.std_dev_type == 0:
+                    if self.count_sum == 0:
+                        self.sum = self.radial[:,1]
+                        self.sum_plot.setData(self.sum)
+                        self.count_cumulative += 1
+                    else:
+                        self.std_dev = numpy.std(self.intensity_sum)
+                        self.intensity_sum_average = numpy.mean(self.intensity_sum)
+                        if self.local_data['intensity_sum'] >= (self.intensity_sum_average-(self.N*self.std_dev)) and (self.local_data['intensity_sum'] <= self.intensity_sum_average+(self.N*self.std_dev)):
+                            self.sum = ((self.sum * self.count_sum)+self.radial[:,1])/(self.count_sum+1)
+                            self.sum_plot.setData(self.sum)
+                            self.count_cumulative += 1
+                            self.percent = numpy.round(self.count_cumulative/(self.count_sum)*100.0, 1)
+                            self.ui.NumPlotLabel.setText("Number Averaged: {}".format(self.count_cumulative))
+                            self.ui.NumTotalLabel.setText("Number Processed: {}".format(self.count_sum))
+                            self.ui.percentPlotLabel.setText("{}% Plotted".format(self.percent))
+                #Type 1 indicates standard deviation on each value of scaled region in radial profile
+                elif self.std_dev_type == 1:
+                    if self.count_sum == 0:
+                        self.sum = self.radial[:,1]
+                        self.sum_plot.setData(self.sum)
+                        self.count_cumulative += 1
+                    elif self.count_sum == 1:
+                        self.start_std = numpy.column_stack((self.sum, self.radial[:,1]))
+                        self.sum = ((self.sum * self.count_sum)+self.radial[:,1])/(self.count_sum+1)
+                        self.sum_plot.setData(self.sum)
+                        self.std_dev_1 = numpy.std(self.start_std, axis=1)
+                        self.count_cumulative += 1
+                    else:
+                        self.std_dev_1 = numpy.sqrt(((self.count_sum-1)*numpy.square(self.std_dev_1)+(self.radial[:,1]-((self.count_sum*self.sum+self.radial[:,1])/(self.count_sum+1)))*(self.radial[:,1]-self.sum))/self.count_sum)
+                        if numpy.all(self.radial[self.min_bin:self.max_bin,1] >= (self.sum[self.min_bin:self.max_bin]-(self.N*self.std_dev_1[self.min_bin:self.max_bin]))) and numpy.all(self.radial[self.min_bin:self.max_bin,1] <= (self.sum[self.min_bin:self.max_bin]+(self.N*self.std_dev_1[self.min_bin:self.max_bin]))):
+                            self.sum = ((self.sum * self.count_sum)+self.radial[:,1])/(self.count_sum+1)
+                            self.sum_plot.setData(self.sum)
+                            self.count_cumulative += 1
+                            self.percent = numpy.round(self.count_cumulative/(self.count_sum)*100.0, 1)
+                            self.ui.NumPlotLabel.setText("Number Averaged: {}".format(self.count_cumulative))
+                            self.ui.NumTotalLabel.setText("Number Processed: {}".format(self.count_sum))
+                            self.ui.percentPlotLabel.setText("{}% Plotted".format(self.percent))
+                    # None or 2 specifies no std. dev filter
+                else:
+                    if self.count_sum == 0:
+                        self.sum = self.radial[:,1]
+                        self.sum_plot.setData(self.sum)
+                        self.count_cumulative += 1
+                    else:
+                        self.sum = ((self.sum * self.count_sum)+self.radial[:,1])/(self.count_sum+1)
+                        self.sum_plot.setData(self.sum)
+                        self.count_cumulative += 1
+                        self.percent = numpy.round(self.count_cumulative/(self.count_sum)*100.0, 1)
+                        self.ui.NumPlotLabel.setText("Number Averaged: {}".format(self.count_cumulative))
+                        self.ui.NumTotalLabel.setText("Number Processed: {}".format(self.count_sum))
+                        self.ui.percentPlotLabel.setText("{}% Plotted".format(self.percent))
             
-            ########### Running cumulative average of radial profiles ################
-            if self.count_sum == 0:
-                self.sum = self.radial[:,1]
-            else:
-                self.sum = ((self.sum * self.count_sum)+self.radial[:,1])/(self.count_sum+1)
-                self.sum_plot.setData(self.sum)
-            
-            #if 'radial_avg_data' in self.local_data.keys():
-            #self.sum = self.local_data['radial_avg_data']
             
             ####### Intensity image Viewer #################
             if self.count == 0:
@@ -292,9 +389,14 @@ class MainFrame(QtGui.QMainWindow):
                 self.ui.imageView.setImage(self.intensity, autoHistogramRange = False, autoLevels=False, autoRange=False)
 
             self.count += 1
-            self.count_sum += 1
 
 
+            if self.click_axis == True:
+                self.unscaled_plot.setData(self.radial[:,0], self.unscaled_radial_profile)
+                self.scaled_plot.setData(self.radial[:,0], self.radial[:,1])
+            else:
+                self.unscaled_plot.setData(self.q_radial, self.unscaled_radial_profile)
+                self.scaled_plot.setData(self.q_radial, self.radial[:,1])
 
 def main():
     signal.signal(signal.SIGINT, signal.SIG_DFL)

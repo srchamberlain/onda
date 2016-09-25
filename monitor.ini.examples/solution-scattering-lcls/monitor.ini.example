@@ -50,10 +50,17 @@ max_res = 400
 
 [RadialAveraging]
 accumulated_shots = 20
-num_bins = 500
+#If pumped_laser_on=True, add pump_laser_state to required_data above
+pump_laser_on = False
+pump_laser_evr_code = 183
+num_bins = 1000
 scale = True
-min_bin_to_scale = 200
-max_bin_to_scale = 420
+min_bin_to_scale = 300
+max_bin_to_scale = 600
+std_dev_type = 1
+n_sigma = 3
+intensity_threshold= 1000
+profile_compare_filename = None
 subtract_profile_filename = None
 rg_calc = False
 ignore_bins = 20

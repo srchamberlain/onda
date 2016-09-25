@@ -42,11 +42,26 @@ def acqiris_data_dataext(event):
                             ).data(gp.monitor_params['PsanaParallelizationLayer'][
                                                      'digitizer_psana_channel']).waveforms()
 
+def pump_laser_state_dataext(event):
+    evr =  event['evt'].get(psana.EvrData.DataV4, psana.Source('DetInfo(NoDetector.0:Evr.1)'))
+    if not evr:
+        evr =  event['evt'].get(psana.EvrData.DataV4, psana.Source('DetInfo(NoDetector.0:Evr.2)'))
+
+    if not evr.present(163):
+        if evr.present(gp.monitor_params['RadialAveraging']['pump_laser_evr_code']):
+            #pump laser on
+            return 1
+        else:
+            #pump laser off
+            return 0
+    else:
+	#dropped shot
+        return 2
 
 in_layer = dyn_imp.import_layer_module('instrument_layer', gp.monitor_params)
 
 data_ext_funcs = ['raw_data', 'opal_data', 'detector_distance', 'beam_energy', 'pulse_energy', 'timestamp',
-                  'acqiris_data']
+                  'acqiris_data', 'pumpe_laser_state']
 
 for data_entry in data_ext_funcs:
     locals()[data_entry] = lambda x: None
@@ -91,6 +106,14 @@ def extract(event, monitor):
         print ('Error when extracting beam_energy: {0}'.format(e))
         monitor.beam_energy = None
 
+    # Extract pump laser state
+    try:
+        monitor.pump_laser_state = pump_laser_state(event)
+
+    except Exception as e:
+        print ('Error when extracting pump laser state: {0}'.format(e))
+        monitor.pump_laser_state = None
+        
     # Extract detector distance in mm
     try:
         monitor.detector_distance = detector_distance(event)

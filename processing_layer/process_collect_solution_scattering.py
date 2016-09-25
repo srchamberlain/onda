@@ -173,6 +173,8 @@ class Onda(MasterWorker):
         self.dkc_hdf5_group = dkc_params['hdf5_group']
         
         # Reads in Radial Section of monitor.ini file
+        self.rad_pump_laser_on = rad_params['pump_laser_on']
+        self.rad_pump_laser_exr_code = rad_params['pump_laser_evr_code']
         self.rad_scale = rad_params['scale']
         self.rad_num_rpixbins = rad_params['num_bins']
         self.rad_subtract_profile_filename = rad_params['subtract_profile_filename']
@@ -301,6 +303,8 @@ class Onda(MasterWorker):
         self.results_dict['max_bin_to_scale'] = self.rad_max_rbin
         self.results_dict['num_bins'] = self.rad_num_rpixbins
         self.results_dict['intensity_threshold'] = self.rad_threshold
+        self.results_dict['pump_laser_state'] = self.pump_laser_state
+        self.results_dict['pump_laser_on'] = self.rad_pump_laser_on
         
         # Calculate radial pofile
         self.results_dict['radial_average'] = calculate_average_radial_intensity(corr_raw_data, self.rpixbins)
@@ -313,19 +317,8 @@ class Onda(MasterWorker):
         if self.rad_profile_compare_filename is not None:
             self.profile_to_compare = np.interp(self.qbins, self.profile_compare_x, self.profile_compare_y, 0, 0)
             ## Scales profile to same region as radial profile, only uses nonzero values of profile
-            reg_to_scale = np.nonzero(self.profile_to_compare)
-            if np.all(reg_to_scale)<self.rad_max_rbin and np.all(reg_to_scale)>self.rad_min_rbin:
-                self.prof_compare_scale = np.mean(self.profile_to_compare[np.amin(reg_to_scale):np.amax(reg_to_scale)])
-                self.profile_to_compare = self.profile_to_compare/self.prof_compare_scale
-            elif np.all(reg_to_scale)<self.rad_max_rbin:
-                self.prof_compare_scale = np.mean(self.profile_to_compare[self.rad_min_rbin:np.amax(reg_to_scale)])
-                self.profile_to_compare = self.profile_to_compare/self.prof_compare_scale
-            elif np.all(reg_to_scale)>self.rad_min_rbin:
-                self.prof_compare_scale = np.mean(self.profile_to_compare[np.amin(reg_to_scale):self.rad_max_rbin])
-                self.profile_to_compare = self.profile_to_compare/self.prof_compare_scale
-            else:
-                self.prof_compare_scale = np.mean(self.profile_to_compare[self.rad_min_rbin:self.rad_max_rbin])
-                self.profile_to_compare = self.profile_to_compare/self.prof_compare_scale
+            data_to_scale = self.profile_to_compare[self.rad_min_rbin:self.rad_max_rbin]
+            self.profile_to_compare /= np.average(data_to_scale) #, weights=data_to_scale.astype(bool))
         self.results_dict['profile_to_compare'] = self.profile_to_compare
         
         # Calculates Radius of Gyration
@@ -372,6 +365,8 @@ class Onda(MasterWorker):
         self.collected_data['beam_energy'] = self.results_dict['beam_energy']
         self.collected_data['optimized_geometry'] = self.optimized_geometry
         self.collected_data['timestamp'] = self.results_dict['timestamp']
+        self.collected_data['pump_laser_state'] = self.results_dict['pump_laser_state']
+        self.collected_data['pump_laser_on'] = self.results_dict['pump_laser_on']
 
         self.zmq_publish.send(b'ondadata', zmq.SNDMORE)
         self.zmq_publish.send_pyobj(self.collected_data)

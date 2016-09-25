@@ -63,31 +63,40 @@ class MainFrame(QtGui.QMainWindow):
         self.coffset = coffset_from_geometry_file(self.geom_filename)
         self.res = res_from_geometry_file(self.geom_filename)
         #
-        self.unscaled_radial_profile = numpy.zeros((500))
-        self.local_data['radial_average'] = numpy.zeros((500))
-        self.local_data['qbins'] = numpy.zeros((500))
+        self.num_bins = 1000
+        self.unscaled_radial_profile = numpy.zeros((self.num_bins))
+        self.local_data['radial_average'] = numpy.zeros((self.num_bins))
+        self.local_data['qbins'] = numpy.zeros((self.num_bins))
         self.intensity_sum_average = 0
         self.std_dev = 0
         self.std_dev_type = 0
         self.N = 1
         self.intensity_threshold = 0
-        self.sum = numpy.zeros((500))
-        self.radial = numpy.zeros((500, 2))
-        self.q_radial = numpy.zeros((500))
-        self.profile_to_compare = numpy.zeros((500))
-        self.intensity = numpy.zeros((500,400))
+        self.sum = numpy.zeros((self.num_bins))
+        self.dark = numpy.zeros((self.num_bins))
+        self.pumped = numpy.zeros((self.num_bins))
+        self.radial = numpy.zeros((self.num_bins, 2))
+        self.q_radial = numpy.zeros((self.num_bins))
+        self.profile_to_compare = numpy.zeros((self.num_bins))
+        self.intensity = numpy.zeros((self.num_bins,2000))
         self.Rg_size = 0
         self.Rg = self.Rg_size * [0.0]
         self.I0_size = 0
         self.I0 = self.I0_size * [0.0]
         self.intensity_sum_size = 0
         self.intensity_sum = self.intensity_sum_size * [0.0]
-        self.std_dev_1 = numpy.zeros((500))
+        self.std_dev_1 = numpy.zeros((self.num_bins))
+        self.std_dev_d = numpy.zeros((self.num_bins))
+        self.std_dev_p = numpy.zeros((self.num_bins))
         self.min_bin = 0
         self.max_bin = 0
+        self.count_dark = 0.0
+        self.count_pumped = 0.0
         self.count_sum = 0.0
         self.count = 0
         self.count_cumulative = 0.0
+        self.count_cum_dark = 0.0
+        self.count_cum_pumped = 0.0
         self.percent = 0.0
         self.click = True
         self.click_axis = True
@@ -128,7 +137,7 @@ class MainFrame(QtGui.QMainWindow):
         self.ui.unscaledPlotWidget.setTitle('Unscaled Radial Profile')
         self.ui.unscaledPlotWidget.setLabel('left', text = 'Unscaled Intensity')
         self.ui.unscaledPlotWidget.showGrid(True,True)
-        self.ui.unscaledPlotWidget.setXRange(0, 500.0)
+        self.ui.unscaledPlotWidget.setXRange(0, self.num_bins)
         self.ui.unscaledPlotWidget.setXLink(self.ui.scaledPlotWidget)
         self.unscaled_plot = self.ui.unscaledPlotWidget.plot(self.radial[:,0], self.unscaled_radial_profile)
         
@@ -136,7 +145,7 @@ class MainFrame(QtGui.QMainWindow):
         self.ui.scaledPlotWidget.setLabel('left', text = 'Scaled Intenisty')
         self.ui.scaledPlotWidget.showGrid(True,True)
         self.ui.scaledPlotWidget.setYRange(0, 10.0)
-        self.ui.scaledPlotWidget.setXRange(0, 500.0)
+        self.ui.scaledPlotWidget.setXRange(0, self.num_bins)
         self.scaled_plot = self.ui.scaledPlotWidget.plot(self.radial[:,0], self.radial[:,1])
         
         self.ui.sumPlotWidget.setTitle('Cumulative Average Radial Profile')
@@ -192,35 +201,54 @@ class MainFrame(QtGui.QMainWindow):
         self.intensity_sum_size = 0
         self.intensity_sum = self.intensity_sum_size * [0.0]
         self.intensity_plot.setData(self.intensity_sum)
-        self.sum = numpy.zeros((500))
+        self.sum = numpy.zeros((self.num_bins))
         self.intensity_sum_average = 0
-        self.std_dev = 0
+        self.std_dev = 0.0
+        self.std_dev_1 = numpy.zeros((self.num_bins))
+        self.std_dev_d = numpy.zeros((self.num_bins))
+        self.std_dev_p = numpy.zeros((self.num_bins))
         self.count_sum = 0.0
         self.count_cumulative = 0.0
+        self.sum_dark = numpy.zeros((self.num_bins))
+        self.sum_pumped = numpy.zeros((self.num_bins))
+        self.count_dark = 0.0
+        self.count_pumped = 0.0
+        self.count_cum_dark = 0.0
+        self.count_cum_pumped = 0.0
+
 
 
     def save_plot(self):
         ## Saves Cumulative Average radial profile for subtraction or comparison on another run
         self.sum = numpy.nan_to_num(self.sum)
         to_save = numpy.column_stack((self.local_data['qbins'], self.sum))
-        numpy.savetxt('profile_to_subtract.dat', to_save, delimiter=" ", fmt="%.5e")
+            if self.pumped_laser_on == True:
+                numpy.savetxt('diff_'+time.strftime("%Y%m%d%H%M%S")+'_'+str(int(self.count_cum_dark+self.count_cum_pumped))+'hits.dat', to_save, delimiter=" ", fmt="%.5e")
+                self.dark = numpy.nan_to_num(self.dark)
+                to_save = numpy.column_stack((self.local_data['qbins'], self.dark))
+                numpy.savetxt('dark_'+time.strftime("%Y%m%d%H%M%S")+'_'+str(int(self.count_cum_dark))+'hits.dat', to_save, delimiter=" ", fmt="%.5e")
+                self.pumped = numpy.nan_to_num(self.pumped)
+                to_save = numpy.column_stack((self.local_data['qbins'], self.pumped))
+                numpy.savetxt('pumped_'+time.strftime("%Y%m%d%H%M%S")+'_'+str(int(self.count_cum_pumped))+'hits.dat', to_save, delimiter=" ", fmt="%.5e")
+            else:
+                numpy.savetxt('sum_'+time.strftime("%Y%m%d%H%M%S")+'_'+str(int(self.count_cumulative))+'hits.dat', to_save, delimiter=" ", fmt="%.5e")
     
 
     def compare_plots(self):
         ##This function is able to let users compare radial profiles to another profile. Toggles graph on and off. Also checks to see if it should graph with qbins or pixel bins
         ##File fed in through monitor.ini file in process_collect_solutions
         if self.click == True:
+            self.profile_to_compare = self.local_data['profile_to_compare']
+            self.ui.sumPlotWidget.plot(numpy.arange(0,self.num_bins),self.profile_to_compare)
             if self.click_axis == True:
-                self.profile_to_compare = self.local_data['profile_to_compare']
-                xvalues = numpy.arange(0,500)
-                self.ui.scaledPlotWidget.plot(xvalues, self.profile_to_compare)
+                self.ui.scaledPlotWidget.plot(numpy.arange(0,self.num_bins), self.profile_to_compare)
                 self.click = False
             else:
-                self.profile_to_compare = self.local_data['profile_to_compare']
                 self.ui.scaledPlotWidget.plot(self.q_radial, self.profile_to_compare)
                 self.click = False
         else:
             self.ui.scaledPlotWidget.clear()
+            self.sum_plot = self.ui.sumPlotWidget.plot(self.sum)
             if self.click_axis == True:
                 self.scaled_plot = self.ui.scaledPlotWidget.plot(self.radial[:,0], self.radial[:,1])
                 self.click = True
@@ -304,21 +332,66 @@ class MainFrame(QtGui.QMainWindow):
         QtGui.QApplication.processEvents()
 
         #Updates all Radial Intensity plots, including stacked intensities
-        if 'radial_average' in self.local_data.keys():
-            # This is defining variables to use
-            self.radial[:,0] = numpy.arange(1, 501)
-            self.radial[:,1] = self.local_data['radial_average']
-            self.unscaled_radial_profile = self.local_data['unscaled_radial_profile']
-            self.q_radial = self.local_data['qbins']
-            self.N = self.local_data['N']
-            self.std_dev_type = self.local_data['std_dev_type']
-            self.intensity_threshold = self.local_data['intensity_threshold']
-            self.min_bin = self.local_data['min_bin_to_scale']
-            self.max_bin = self.local_data['max_bin_to_scale']
-            self.num_bins = self.local_data['num_bins']
-            self.count_sum += 1
-            
+        # This is defining variables to use
+        self.radial[:,0] = numpy.arange(1, 501)
+        self.radial[:,1] = self.local_data['radial_average']
+        self.unscaled_radial_profile = self.local_data['unscaled_radial_profile']
+        self.q_radial = self.local_data['qbins']
+        self.N = self.local_data['N']
+        self.std_dev_type = self.local_data['std_dev_type']
+        self.intensity_threshold = self.local_data['intensity_threshold']
+        self.min_bin = self.local_data['min_bin_to_scale']
+        self.max_bin = self.local_data['max_bin_to_scale']
+        self.num_bins = self.local_data['num_bins']
+        self.pump_laser_on = self.local_data['pump_laser_on']
+        self.pump_laser_state = self.local_data['pump_laser_state']
         
+        if self.pump_laser_on == True:
+            if self.pump_laser_state == 0:
+                if self.local_data['intensity_sum'] >= self.intensity_threshold:
+                    if self.count_dark == 0:
+                        self.dark = self.radial[:,1]
+                        self.count_cum_dark += 1
+                    elif self.count_dark == 0:
+                        self.start_std_dark = numpy.column_stack((self.dark, self.radial[:,1]))
+                        self.dark = ((self.dark * self.count_dark)+self.radial[:,1])/(self.count_dark+1)
+                        self.std_dev_d = numpy.std(self.start_std_dark, axis=1)
+                        self.count_cum_dark += 1
+                    else:
+                        self.std_dev_d = numpy.sqrt(((self.count_dark-1)*numpy.square(self.std_dev_d)+(self.radial[:,1]-((self.count_dark*self.dark+self.radial[:,1]/(self.count_dark+1)))*(self.radial[:,1]-self.dark))/self.count_dark)
+                        if numpy.all(self.radial[self.min_bin:self.max_bin,1] >= (self.dark[self.min_bin:self.max_bin]-(self.N*self.std_dev_d[self.min_bin:self.max_bin]))) and numpy.all(self.radial[self.min_bin:self.max_bin,1] <= (self.dark[self.min_bin:self.max_bin]+(self.N*self.std_dev_d[self.min_bin:self.max_bin]))):
+                            self.dark = ((self.dark * self.count_dark)+self.radial[:,1])/(self.count_dark+1)
+                            self.count_cum_dark +=1
+                self.count_dark += 1
+                self.percent_dark = numpy.round(self.count_cum_dark/(self.count_dark)*100.0, 1)
+                self.ui.NumPlotLabel.setText("Number Dark Averaged: {}".format(self.count_cum_dark))
+                self.ui.NumTotalLabel.setText("Number Dark Processed: {}".format(self.count_dark))
+                self.ui.percentPlotLabel.setText("{}% Dark Plotted".format(self.percent_dark))
+           
+            if self.pump_laser_state == 1:
+                if self.local_data['intensity_sum'] >= self.intensity_threshold:
+                    if self.count_pumped == 0:
+                        self.pumped = self.radial[:,1]
+                        self.count_cum_pumped += 1
+                    elif self.count_pumped == 0:
+                        self.start_std_pumped = numpy.column_stack((self.pumped, self.radial[:,1]))
+                        self.pumped = ((self.pumped * self.count_pumped)+self.radial[:,1])/(self.count_pumped+1)
+                        self.std_dev_p = numpy.std(self.start_std_pumped, axis=1)
+                        self.count_cum_pumped += 1
+                    else:
+                        self.std_dev_p = numpy.sqrt(((self.count_pumped-1)*numpy.square(self.std_dev_p)+(self.radial[:,1]-((self.count_pumped*self.pumped+self.radial[:,1])/(self.count_pumped+1)))*(self.radial[:,1]-self.pumped))/self.count_pumped)
+                       	if numpy.all(self.radial[self.min_bin:self.max_bin,1] >= (self.pumped[self.min_bin:self.max_bin]-(self.N*self.std_dev_p[self.min_bin:self.max_bin]))) and numpy.all(self.radial[self.min_bin:self.max_bin,1] <= (self.pumped[self.min_bin:self.max_bin]+(self.N*self.std_dev_p[self.min_bin:self.max_bin]))):
+                            self.pumped = ((self.pumped * self.count_pumped)+self.radial[:,1])/(self.count_pumped+1)
+                            self.count_cum_pumped += 1
+                self.count_pumped +=1
+                self.percent_pumped = numpy.round(self.count_cum_pumped/(self.count_pumped)*100.0, 1)
+                self.ui.NumPlot2Label.setText("Number Pumped Averaged: {}".format(self.count_cum_pumped))
+                self.ui.NumTotal2Label.setText("Number Pumped Processed: {}".format(self.count_pumped))
+                self.ui.percentPlot2Label.setText("{}% Pumped Plotted".format(self.percent_pumped))
+            self.sum = self.pumped-self.dark
+            self.sum_plot.setData(self.sum)
+
+        else:
             ## Incorperate std. dev into cumulative radial profile sum
             # Type 0 corresponds to standard deviation of sum of the intensities
             if self.local_data['intensity_sum'] >= self.intensity_threshold:
@@ -331,7 +404,7 @@ class MainFrame(QtGui.QMainWindow):
                         self.std_dev = numpy.std(self.intensity_sum)
                         self.intensity_sum_average = numpy.mean(self.intensity_sum)
                         if self.local_data['intensity_sum'] >= (self.intensity_sum_average-(self.N*self.std_dev)) and (self.local_data['intensity_sum'] <= self.intensity_sum_average+(self.N*self.std_dev)):
-                            self.sum = ((self.sum * self.count_sum)+self.radial[:,1])/(self.count_sum+1)
+                            self.sum = ((self.sum * self.count_cumulative)+self.radial[:,1])/(self.count_cumulative+1)
                             self.sum_plot.setData(self.sum)
                             self.count_cumulative += 1
                             self.percent = numpy.round(self.count_cumulative/(self.count_sum)*100.0, 1)
@@ -346,57 +419,56 @@ class MainFrame(QtGui.QMainWindow):
                         self.count_cumulative += 1
                     elif self.count_sum == 1:
                         self.start_std = numpy.column_stack((self.sum, self.radial[:,1]))
-                        self.sum = ((self.sum * self.count_sum)+self.radial[:,1])/(self.count_sum+1)
+                        self.sum = ((self.sum * self.count_cumulative)+self.radial[:,1])/(self.count_cumulative+1)
                         self.sum_plot.setData(self.sum)
                         self.std_dev_1 = numpy.std(self.start_std, axis=1)
                         self.count_cumulative += 1
                     else:
                         self.std_dev_1 = numpy.sqrt(((self.count_sum-1)*numpy.square(self.std_dev_1)+(self.radial[:,1]-((self.count_sum*self.sum+self.radial[:,1])/(self.count_sum+1)))*(self.radial[:,1]-self.sum))/self.count_sum)
                         if numpy.all(self.radial[self.min_bin:self.max_bin,1] >= (self.sum[self.min_bin:self.max_bin]-(self.N*self.std_dev_1[self.min_bin:self.max_bin]))) and numpy.all(self.radial[self.min_bin:self.max_bin,1] <= (self.sum[self.min_bin:self.max_bin]+(self.N*self.std_dev_1[self.min_bin:self.max_bin]))):
-                            self.sum = ((self.sum * self.count_sum)+self.radial[:,1])/(self.count_sum+1)
+                            self.sum = ((self.sum * self.count_cumulative)+self.radial[:,1])/(self.count_cumulative+1)
                             self.sum_plot.setData(self.sum)
                             self.count_cumulative += 1
                             self.percent = numpy.round(self.count_cumulative/(self.count_sum)*100.0, 1)
                             self.ui.NumPlotLabel.setText("Number Averaged: {}".format(self.count_cumulative))
                             self.ui.NumTotalLabel.setText("Number Processed: {}".format(self.count_sum))
                             self.ui.percentPlotLabel.setText("{}% Plotted".format(self.percent))
-                    # None or 2 specifies no std. dev filter
+                #None or 2 specifies no std. dev filter
                 else:
                     if self.count_sum == 0:
                         self.sum = self.radial[:,1]
                         self.sum_plot.setData(self.sum)
                         self.count_cumulative += 1
                     else:
-                        self.sum = ((self.sum * self.count_sum)+self.radial[:,1])/(self.count_sum+1)
+                        self.sum = ((self.sum * self.count_cumulative)+self.radial[:,1])/(self.count_cumulative+1)
                         self.sum_plot.setData(self.sum)
                         self.count_cumulative += 1
                         self.percent = numpy.round(self.count_cumulative/(self.count_sum)*100.0, 1)
                         self.ui.NumPlotLabel.setText("Number Averaged: {}".format(self.count_cumulative))
                         self.ui.NumTotalLabel.setText("Number Processed: {}".format(self.count_sum))
                         self.ui.percentPlotLabel.setText("{}% Plotted".format(self.percent))
-            
-            
-            ####### Intensity image Viewer #################
-            if self.count == 0:
-                self.intensity[:,(400-1)-self.count] = self.radial[:,1]
-                self.ui.imageView.setImage(self.intensity, autoHistogramRange = True, autoLevels=False, autoRange=True)
-            elif self.count < 400:
-                self.intensity[:,(400-1)-self.count] = self.radial[:,1]
-                self.ui.imageView.setImage(self.intensity, autoHistogramRange = False, autoLevels=False, autoRange=False)
-            else:
-                self.intensity = numpy.roll(self.intensity, 1, axis=1)
-                self.intensity[:,0]=self.radial[:,1]
-                self.ui.imageView.setImage(self.intensity, autoHistogramRange = False, autoLevels=False, autoRange=False)
+                     
+        ##### Intensity image Viewer #################
+        if self.count < 400:
+            unscaled_radial_profile = numpy.tile(self.unscaled_radial_profile, (5,1)).transpose()
+            self.intensity[:,5*((400-1)-self.count):5*((400-1)-self.count+1)] = unscaled_radial_profile
+            self.ui.imageView.setImage(self.intensity, autoHistogramRange = True, autoLevels=False, autoRange=False)
+        else:
+            self.intensity = numpy.roll(self.intensity, 5, axis=1)
+            unscaled_radial_profile = numpy.tile(self.unscaled_radial_profile, (5,1)).transpose()
+            self.intensity[:,0:5]=unscaled_radial_profile
+            self.ui.imageView.setImage(self.intensity, autoHistogramRange = False, autoLevels=False, autoRange=False)
 
-            self.count += 1
+        self.count += 1
+        self.count_sum +=1
 
 
-            if self.click_axis == True:
-                self.unscaled_plot.setData(self.radial[:,0], self.unscaled_radial_profile)
-                self.scaled_plot.setData(self.radial[:,0], self.radial[:,1])
-            else:
-                self.unscaled_plot.setData(self.q_radial, self.unscaled_radial_profile)
-                self.scaled_plot.setData(self.q_radial, self.radial[:,1])
+        if self.click_axis == True:
+            self.unscaled_plot.setData(self.radial[:,0], self.unscaled_radial_profile)
+            self.scaled_plot.setData(self.radial[:,0], self.radial[:,1])
+        else:
+            self.unscaled_plot.setData(self.q_radial, self.unscaled_radial_profile)
+            self.scaled_plot.setData(self.q_radial, self.radial[:,1])
 
 def main():
     signal.signal(signal.SIGINT, signal.SIG_DFL)
